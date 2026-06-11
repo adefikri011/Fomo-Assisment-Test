@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
 use Illuminate\Support\Facades\DB;
+use App\Exceptions\InsufficientStockException;
 
 class OrderService
 {
@@ -29,7 +30,7 @@ class OrderService
                     ->first();
 
                 if ($product->stock < $item['quantity']) {
-                    throw new \Exception('Insufficient stock');
+                    throw new InsufficientStockException();
                 }
 
                 $price = $product->is_flash_sale

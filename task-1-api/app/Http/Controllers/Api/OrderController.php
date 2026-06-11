@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use App\Services\OrderService;
 use App\Http\Resources\OrderResource;
+use App\Exceptions\InsufficientStockException;
 
 class OrderController extends Controller
 {
@@ -40,12 +41,18 @@ class OrderController extends Controller
                 'success' => true,
                 'data' => new OrderResource($order)
             ], 201);
-        } catch (\Exception $e) {
+        } catch (InsufficientStockException $e) {
 
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
             ], 400);
+        } catch (\Exception $e) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong.'
+            ], 500);
         }
     }
 }

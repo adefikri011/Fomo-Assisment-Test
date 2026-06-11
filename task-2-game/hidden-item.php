@@ -1,17 +1,5 @@
 <?php
 
-/**
- * Hidden Item Game
- *
- * A CLI game where the player navigates a grid (Up → Right → Down)
- * to find a hidden item. The program determines all valid destination
- * coordinates reachable by the given steps.
- */
-
-// ---------------------------------------------------------------------------
-// Grid definition
-// ---------------------------------------------------------------------------
-
 $GRID = [
     ['#', '#', '#', '#', '#', '#', '#', '#'],
     ['#', '.', '.', '.', '.', '.', '.', '#'],
@@ -21,239 +9,238 @@ $GRID = [
     ['#', '#', '#', '#', '#', '#', '#', '#'],
 ];
 
-// ---------------------------------------------------------------------------
-// ANSI colour helpers
-// ---------------------------------------------------------------------------
-
 function ansi(string $code): string
 {
     return "\033[{$code}m";
 }
-
 function bold(string $text): string
 {
     return ansi('1') . $text . ansi('0');
 }
-
-function color(string $text, string $fg): string
+function col(string $text, string $fg): string
 {
-    $codes = [
-        'red'     => '31',
-        'green'   => '32',
-        'yellow'  => '33',
-        'cyan'    => '36',
-        'white'   => '37',
-        'gray'    => '90',
-        'reset'   => '0',
-    ];
-
-    return ansi($codes[$fg] ?? '0') . $text . ansi('0');
+    $map = ['red' => '31', 'green' => '32', 'yellow' => '33', 'cyan' => '36', 'white' => '37', 'gray' => '90'];
+    return ansi($map[$fg] ?? '0') . $text . ansi('0');
 }
 
-// ---------------------------------------------------------------------------
-// Grid helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Find the player's starting position (cell marked 'X').
- *
- * @param  array<int, array<int, string>> $grid
- * @return array{r: int, c: int}
- */
 function findStart(array $grid): array
 {
-    foreach ($grid as $r => $row) {
-        foreach ($row as $c => $cell) {
-            if ($cell === 'X') {
-                return ['r' => $r, 'c' => $c];
-            }
-        }
-    }
-
-    throw new RuntimeException('Starting position X not found in grid.');
+    foreach ($grid as $r => $row)
+        foreach ($row as $cc => $cell)
+            if ($cell === 'X') return ['r' => $r, 'c' => $cc];
+    throw new RuntimeException('X tidak ditemukan.');
 }
 
-/**
- * Returns true when the coordinate exists and is walkable (not a wall).
- *
- * @param  array<int, array<int, string>> $grid
- */
-function isWalkable(array $grid, int $r, int $c): bool
-{
-    return isset($grid[$r][$c]) && $grid[$r][$c] !== '#';
-}
-
-/**
- * Walk a single direction step-by-step, returning the final position or null
- * if the path is blocked at any point.
- *
- * @param  array<int, array<int, string>> $grid
- * @param  array{r: int, c: int}         $from
- * @return array{r: int, c: int}|null
- */
 function walk(array $grid, array $from, int $dr, int $dc, int $steps): ?array
 {
     $r = $from['r'];
-    $c = $from['c'];
-
+    $cc = $from['c'];
     for ($i = 0; $i < $steps; $i++) {
-        $r += $dr;
-        $c += $dc;
-
-        if (!isWalkable($grid, $r, $c)) {
-            return null;
-        }
+        $r  += $dr;
+        $cc += $dc;
+        if (!isset($grid[$r][$cc])) return null;
+        if ($grid[$r][$cc] !== '.') return null;
     }
-
-    return ['r' => $r, 'c' => $c];
+    return ['r' => $r, 'c' => $cc];
 }
 
-/**
- * Trace the full path Up → Right → Down.
- * Returns the final position, or null if the path is blocked anywhere.
- *
- * @param  array<int, array<int, string>> $grid
- * @param  array{r: int, c: int}         $start
- * @return array{r: int, c: int}|null
- */
-function tracePath(array $grid, array $start, int $a, int $b, int $c): ?array
+function tracePath(array $grid, array $start, int $stepA, int $stepB, int $stepC): ?array
 {
-    $pos = walk($grid, $start, -1, 0, $a);   // Up
+    if ($stepA === 0 && $stepB === 0 && $stepC === 0) return null;
+
+    $pos = walk($grid, $start, -1, 0, $stepA);
     if ($pos === null) return null;
 
-    $pos = walk($grid, $pos,   0, +1, $b);  // Right
+    $pos = walk($grid, $pos, 0, +1, $stepB);
     if ($pos === null) return null;
 
-    $pos = walk($grid, $pos,  +1, 0, $c);   // Down
+    $pos = walk($grid, $pos, +1, 0, $stepC);      
+    if ($pos === null) return null;
+
+    if ($grid[$pos['r']][$pos['c']] !== '.') return null;
+    if ($pos['r'] === $start['r'] && $pos['c'] === $start['c']) return null;
+
     return $pos;
 }
 
-// ---------------------------------------------------------------------------
-// Output helpers
-// ---------------------------------------------------------------------------
-
-function printSeparator(int $width = 44): void
+function findAllReachable(array $grid, array $start): array
 {
-    echo color(str_repeat('─', $width), 'gray') . "\n";
+    $rows    = count($grid);
+    $cols    = count($grid[0]);
+    $reached = [];
+
+    for ($sa = 0; $sa < $rows; $sa++) {
+        for ($sb = 0; $sb < $cols; $sb++) {
+            for ($sc = 0; $sc < $rows; $sc++) {
+                $result = tracePath($grid, $start, $sa, $sb, $sc);
+                if ($result === null) continue;
+
+                // Redundant check — tapi lebih aman
+                if ($grid[$result['r']][$result['c']] !== '.') continue;
+
+                $key = "{$result['r']},{$result['c']}";
+                if (!isset($reached[$key])) {
+                    $reached[$key] = [
+                        'r'  => $result['r'],
+                        'c'  => $result['c'],
+                        'sa' => $sa,
+                        'sb' => $sb,
+                        'sc' => $sc,
+                    ];
+                }
+            }
+        }
+    }
+    return $reached;
 }
 
-function printHeader(): void
+function pickHiddenItem(array $reachable, array $excluded): ?array
 {
-    echo "\n";
-    echo bold(color('  HIDDEN ITEM GAME', 'cyan')) . "\n";
-    printSeparator();
-    echo color("  Grid legend:", 'gray') . "  ";
-    echo color('#', 'red')    . " wall   ";
-    echo color('.', 'white')  . " path   ";
-    echo color('X', 'yellow') . " start  ";
-    echo color('$', 'green')  . " item\n";
-    printSeparator();
+    $candidates = array_filter($reachable, fn($k) => !isset($excluded[$k]), ARRAY_FILTER_USE_KEY);
+    if (empty($candidates)) return null;
+    $keys = array_keys($candidates);
+    return $candidates[$keys[array_rand($keys)]];
 }
 
-/**
- * Render the grid, optionally marking a destination with '$'.
- *
- * @param  array<int, array<int, string>>  $grid
- * @param  array{r: int, c: int}|null     $destination
- */
-function renderGrid(array $grid, ?array $destination): void
+function renderGrid(array $grid, ?array $guess, ?array $hiddenItem, bool $showItem): void
 {
     $rows = count($grid);
     $cols = count($grid[0] ?? []);
-
-    $labelW = strlen((string) ($rows - 1));
-
     echo "\n";
-
     for ($r = 0; $r < $rows; $r++) {
-        echo color(str_pad((string) $r, $labelW + 1, ' ', STR_PAD_LEFT), 'gray') . '  ';
+        echo col(str_pad((string)$r, 2, ' ', STR_PAD_LEFT), 'gray') . '  ';
+        for ($cc = 0; $cc < $cols; $cc++) {
+            $cell    = $grid[$r][$cc];
+            $isGuess = $guess      && $guess['r']      === $r && $guess['c']      === $cc;
+            $isItem  = $hiddenItem && $hiddenItem['r'] === $r && $hiddenItem['c'] === $cc;
 
-        for ($c = 0; $c < $cols; $c++) {
-            $cell = $grid[$r][$c];
-            $isTarget = $destination && $destination['r'] === $r && $destination['c'] === $c;
-
-            if ($isTarget) {
-                echo color('$', 'green');
-            } elseif ($cell === '#') {
-                echo color('#', 'gray');
-            } elseif ($cell === 'X') {
-                echo color('X', 'yellow');
-            } else {
-                echo color('.', 'white');
-            }
-
+            if ($isGuess && $isItem)       echo bold(col('$', 'green'));
+            elseif ($isItem && $showItem)  echo bold(col('*', 'red'));
+            elseif ($isGuess)              echo col('?', 'yellow');
+            elseif ($cell === '#')         echo col('#', 'gray');
+            elseif ($cell === 'X')         echo col('X', 'cyan');
+            else                           echo col('.', 'white');
             echo ' ';
         }
-
         echo "\n";
     }
-
-    // Column index labels
-    echo str_repeat(' ', $labelW + 3);
-    for ($c = 0; $c < $cols; $c++) {
-        echo color((string) $c, 'gray') . ' ';
-    }
-
+    echo str_repeat(' ', 5);
+    for ($cc = 0; $cc < $cols; $cc++) echo col((string)$cc, 'gray') . ' ';
     echo "\n\n";
 }
 
-// ---------------------------------------------------------------------------
-// Input helpers
-// ---------------------------------------------------------------------------
+function printSep(int $w = 48): void
+{
+    echo col(str_repeat('─', $w), 'gray') . "\n";
+}
 
-function readInt(string $label): int
+function readInt(string $label, int $min = 0): int
 {
     while (true) {
-        echo "  " . color($label, 'cyan') . ": ";
-        $raw = trim((string) readline(''));
-
-        if (ctype_digit($raw) && $raw !== '') {
-            return (int) $raw;
-        }
-
-        echo color("  Please enter a non-negative integer.\n", 'red');
+        echo '  ' . col($label, 'cyan') . ': ';
+        $raw = trim((string)readline(''));
+        if (ctype_digit($raw) && (int)$raw >= $min) return (int)$raw;
+        echo col("  Masukkan bilangan bulat >= {$min}.\n", 'red');
     }
 }
 
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
+function playGame(array $grid): void
+{
+    $start     = findStart($grid);
+    $reachable = findAllReachable($grid, $start);
 
-printHeader();
+    if (empty($reachable)) {
+        echo col("  Tidak ada titik yang bisa dicapai.\n", 'red');
+        return;
+    }
 
-$start = findStart($GRID);
-echo color("  Starting position", 'gray') . ": row {$start['r']}, col {$start['c']}\n\n";
-renderGrid($GRID, null);
-
-echo bold("  Enter movement steps:\n\n");
-$a = readInt('Up    (A)');
-$b = readInt('Right (B)');
-$c = readInt('Down  (C)');
-
-echo "\n";
-printSeparator();
-
-$destination = tracePath($GRID, $start, $a, $b, $c);
-
-if ($destination === null) {
     echo "\n";
-    echo color("  [!] Path blocked", 'red') . " — the route hits a wall or leaves the grid.\n";
-    echo color("      No valid item locations found.\n", 'gray');
-} else {
-    echo "\n";
-    echo color("  [+] Item location found:\n\n", 'green');
-    echo "      Row " . bold((string) $destination['r'])
-       . ", Column " . bold((string) $destination['c']) . "\n";
-    echo "\n";
+    echo bold(col('  HIDDEN ITEM GAME', 'cyan')) . "\n";
+    printSep();
+    echo col('  Legend: ', 'gray')
+        . col('#', 'gray') . col(' dinding  ', 'gray')
+        . col('.', 'white') . col(' jalur  ', 'gray')
+        . col('X', 'cyan') . col(' start  ', 'gray')
+        . col('?', 'yellow') . col(' tebakan salah  ', 'gray')
+        . bold(col('$', 'green')) . col(' ditemukan  ', 'gray')
+        . bold(col('*', 'red')) . col(' item asli', 'gray') . "\n";
+    printSep();
+    echo col("\n  Navigasi: Atas (A) → Kanan (B) → Bawah (C)\n", 'gray');
+    echo col("  Temukan item sebelum 5 ronde! Item pindah tiap ronde salah.\n\n", 'gray');
+    echo col("  Posisi awal: ", 'gray') . "baris " . bold((string)$start['r']) . ", kolom " . bold((string)$start['c']) . "\n";
 
-    renderGrid($GRID, $destination);
+    renderGrid($grid, null, null, false);
 
-    echo color("  Path taken:  ", 'gray')
-       . color("Up {$a}", 'cyan')   . " → "
-       . color("Right {$b}", 'cyan') . " → "
-       . color("Down {$c}", 'cyan')  . "\n";
+    $maxRounds    = 5;
+    $won          = false;
+    $revealedKeys = [];
+    $hiddenItem   = pickHiddenItem($reachable, $revealedKeys);
+
+    for ($round = 1; $round <= $maxRounds && !$won; $round++) {
+        printSep();
+        echo bold("  Ronde {$round} / {$maxRounds}") . "\n\n";
+
+        $a = readInt('Atas  (A)', 0);
+        $b = readInt('Kanan (B)', 0);
+        $c = readInt('Bawah (C)', 0);
+
+        $destination = tracePath($grid, $start, $a, $b, $c);
+
+        echo "\n";
+        printSep();
+
+        if ($destination === null) {
+            echo col("\n  [!] Jalur terblokir.\n", 'red');
+            if ($round < $maxRounds)
+                echo col("  Sisa kesempatan: ", 'gray') . bold((string)($maxRounds - $round)) . "\n\n";
+            continue;
+        }
+
+        $hit = $destination['r'] === $hiddenItem['r'] && $destination['c'] === $hiddenItem['c'];
+
+        if ($hit) {
+            $won = true;
+            echo "\n" . bold(col("  ITEM DITEMUKAN!", 'green')) . "\n";
+            echo col("  Lokasi: baris ", 'gray') . bold((string)$destination['r']) . col(", kolom ", 'gray') . bold((string)$destination['c']) . "\n";
+            renderGrid($grid, $destination, $hiddenItem, true);
+            echo col("  Jalur: ", 'gray') . col("Atas {$a}", 'cyan') . " → " . col("Kanan {$b}", 'cyan') . " → " . col("Bawah {$c}", 'cyan') . "\n\n";
+        } else {
+            echo "\n";
+            echo col("  Tebakan: ", 'gray') . "baris " . bold((string)$destination['r']) . ", kolom " . bold((string)$destination['c']) . col(" — item tidak di sini.\n", 'gray');
+            echo col("  Lokasi item ronde ini: baris ", 'gray') . bold((string)$hiddenItem['r']) . col(", kolom ", 'gray') . bold((string)$hiddenItem['c']) . "\n";
+
+            if ($round < $maxRounds) {
+                echo col("  Sisa kesempatan: ", 'gray') . bold((string)($maxRounds - $round)) . "\n";
+                echo col("  Item akan berpindah ke lokasi baru di ronde berikutnya.\n", 'gray');
+            }
+
+            renderGrid($grid, $destination, $hiddenItem, true);
+
+            $itemKey = "{$hiddenItem['r']},{$hiddenItem['c']}";
+            $revealedKeys[$itemKey] = true;
+            if ($round < $maxRounds) {
+                $newItem = pickHiddenItem($reachable, $revealedKeys);
+                if ($newItem !== null) $hiddenItem = $newItem;
+            }
+        }
+    }
+
+    if (!$won) {
+        printSep();
+        echo "\n" . bold(col("  GAME OVER", 'red')) . "\n";
+        echo col("  Item terakhir: baris ", 'gray') . bold((string)$hiddenItem['r']) . col(", kolom ", 'gray') . bold((string)$hiddenItem['c']) . "\n";
+        echo col("  Kombinasi benar: ", 'gray')
+            . col("Atas {$hiddenItem['sa']}", 'cyan') . " → "
+            . col("Kanan {$hiddenItem['sb']}", 'cyan') . " → "
+            . col("Bawah {$hiddenItem['sc']}", 'cyan') . "\n";
+        renderGrid($grid, null, $hiddenItem, true);
+    }
+
+    printSep();
+    echo "\n  " . col("Mau main lagi? (y/n): ", 'gray');
+    $again = strtolower(trim((string)readline('')));
+    if ($again === 'y') playGame($grid);
+    else echo "\n  Terima kasih sudah bermain!\n\n";
 }
 
-echo "\n";
-printSeparator();
-echo "\n";
+playGame($GRID);
